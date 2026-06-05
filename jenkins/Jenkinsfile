@@ -1,0 +1,81 @@
+pipeline {
+    agent any
+
+    environment {
+        BACKEND_IMAGE  = 'fabioooo/adotapet-backend'
+        BUILD_TAG      = "${env.BUILD_NUMBER}"
+        DOCKERHUB_CRED = 'dockerhub-credentials'
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Instalar dependências') {
+            steps {
+                dir('backend') {
+                    sh 'npm ci'
+                    sh 'npx prisma generate'
+                }
+            }
+        }
+
+        stage('Testes unitários') {
+            steps {
+                dir('backend') {
+                    sh 'npm test -- --ci --forceExit'
+                }
+            }
+            post {
+                always {
+                    junit allowEmptyResults: true,
+                          testResults: 'backend/coverage/junit-unit.xml'
+                }
+            }
+        }
+
+        stage('Build imagem backend') {
+            steps {
+                sh """
+                    docker build \
+                        -t ${BACKEND_IMAGE}:${BUILD_TAG} \
+                        -t ${BACKEND_IMAGE}:latest \
+                        ./backend
+                """
+            }
+        }
+
+        stage('Push para DockerHub') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: "${DOCKERHUB_CRED}",
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    sh """
+                        echo "\$DOCKER_PASS" | docker login -u "\$DOCKER_USER" --password-stdin
+                        docker push ${BACKEND_IMAGE}:${BUILD_TAG}
+                        docker push ${BACKEND_IMAGE}:latest
+                        docker logout
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+        success {
+            echo "✅ Build #${BUILD_TAG} publicado como ${BACKEND_IMAGE}:${BUILD_TAG}"
+        }
+        failure {
+            echo "❌ Pipeline falhou no build #${BUILD_TAG}. Verifique os logs acima."
+        }
+    }
+}
