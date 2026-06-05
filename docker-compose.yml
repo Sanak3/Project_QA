@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+
+  mysql-db:
+    image: mysql:8.0
+    container_name: qa-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: ${DB_NAME:-adotapet}
+      MYSQL_USER: ${DB_USER:-user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-password}
+    ports:
+      - "3306:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - qa-network
+
+  backend-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: qa-backend
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: mysql://${DB_USER:-user}:${DB_PASSWORD:-password}@mysql-db:3306/${DB_NAME:-adotapet}
+    depends_on:
+      - mysql-db
+    networks:
+      - qa-network
+
+  frontend-web:
+    image: fabioooo/jenkins-adotapet:latest
+    container_name: qa-frontend
+    restart: always
+    ports:
+      - "8081:8080"
+    depends_on:
+      - backend-api
+    networks:
+      - qa-network
+
+  adminer:
+    image: adminer
+    container_name: qa-adminer
+    restart: always
+    ports:
+      - "8080:8080"
+    depends_on:
+      - mysql-db
+    networks:
+      - qa-network
+
+networks:
+  qa-network:
+    driver: bridge
+
+volumes:
+  db_data:
